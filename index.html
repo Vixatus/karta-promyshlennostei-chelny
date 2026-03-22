@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Карта промышленностей Набережных Челнов</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #eef2f7; color: #1f2937; }
+    .app { display: grid; grid-template-columns: 390px 1fr; height: 100vh; }
+    .sidebar { background: #fff; border-right: 1px solid #dbe3ee; display: flex; flex-direction: column; min-width: 0; }
+    .sidebar-header { padding: 20px 18px 16px; border-bottom: 1px solid #e5e7eb; background: linear-gradient(135deg, #1f3c88, #2952cc); color: white; }
+    .sidebar-header h1 { margin: 0 0 8px; font-size: 22px; line-height: 1.2; }
+    .sidebar-header p { margin: 0; font-size: 14px; line-height: 1.5; opacity: 0.95; }
+    .controls { padding: 14px 16px; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+    .search { width: 100%; padding: 11px 12px; border: 1px solid #cfd8e3; border-radius: 12px; font-size: 14px; outline: none; margin-bottom: 10px; }
+    .search:focus { border-color: #2952cc; box-shadow: 0 0 0 3px rgba(41,82,204,.12); }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .filter-btn { border: 1px solid #cfd8e3; background: white; color: #334155; padding: 8px 10px; border-radius: 999px; font-size: 13px; cursor: pointer; transition: .2s ease; }
+    .filter-btn:hover, .filter-btn.active { background: #2952cc; color: white; border-color: #2952cc; }
+    .factory-list { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .factory-card { border: 1px solid #dde5ef; border-radius: 18px; background: white; padding: 12px; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+    .factory-card:hover, .factory-card.active { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(15,23,42,.08); border-color: #7aa2ff; }
+    .factory-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 12px; margin-bottom: 10px; background: #dbe3ee; }
+    .factory-card h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.25; }
+    .factory-meta { font-size: 13px; color: #5b6472; margin-bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag { display: inline-block; background: #e8eefc; color: #2242a5; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: bold; margin-bottom: 8px; }
+    .factory-card p { margin: 0; font-size: 14px; line-height: 1.5; color: #374151; }
+    .map-wrap { position: relative; height: 100vh; }
+    #map { width: 100%; height: 100%; }
+    .map-marker { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; border: 3px solid white; box-shadow: 0 6px 14px rgba(15,23,42,.25); }
+    .marker-machinery { background: #2563eb; }
+    .marker-food { background: #16a34a; }
+    .marker-metal { background: #dc2626; }
+    .marker-materials { background: #7c3aed; }
+    .marker-energy { background: #ea580c; }
+    .marker-chem { background: #0891b2; }
+    .marker-electro { background: #0f766e; }
+    .marker-build { background: #475569; }
+    .marker-other { background: #334155; }
+    .leaflet-control-attribution { display: none !important; }
+    .leaflet-popup-content { margin: 12px; width: 285px !important; }
+    .popup-card img { width: 100%; height: 160px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; background: #dbe3ee; }
+    .popup-card h3 { margin: 0 0 8px; font-size: 18px; }
+    .popup-info { font-size: 13px; color: #4b5563; margin-bottom: 8px; line-height: 1.45; }
+    .popup-text { font-size: 14px; color: #1f2937; line-height: 1.5; margin-bottom: 10px; }
+    .details-btn { display: inline-block; background: #2952cc; color: white; padding: 8px 12px; border-radius: 10px; font-size: 13px; border: none; cursor: pointer; margin-top: 10px; }
+    .more-text { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 14px; line-height: 1.6; color: #334155; }
+    .hidden { display: none; }
+    .empty-state { text-align: center; color: #6b7280; padding: 30px 20px; font-size: 14px; line-height: 1.5; }
+    @media (max-width: 950px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 55vh; height: auto; min-height: 100vh; }
+      .map-wrap { height: 55vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>Карта промышленностей Набережных Челнов</h1>
+        <p>Нажми на карточку слева или на метку на карте, чтобы открыть фото и информацию о предприятии.</p>
+      </div>
+      <div class="controls">
+        <input id="searchInput" class="search" type="text" placeholder="Поиск предприятия..." />
+        <div class="filter-row">
+          <button class="filter-btn active" data-filter="all">Все</button>
+          <button class="filter-btn" data-filter="Машиностроение">Машиностроение</button>
+          <button class="filter-btn" data-filter="Пищевая">Пищевая</button>
+          <button class="filter-btn" data-filter="Металлургия">Металлургия</button>
+          <button class="filter-btn" data-filter="Материалы">Материалы</button>
+          <button class="filter-btn" data-filter="Энергетика">Энергетика</button>
+          <button class="filter-btn" data-filter="Химия">Химия</button>
+          <button class="filter-btn" data-filter="Электротехника">Электротехника</button>
+          <button class="filter-btn" data-filter="Строительство">Строительство</button>
+        </div>
+      </div>
+      <div id="factoryList" class="factory-list"></div>
+    </aside>
+    <main class="map-wrap">
+      <div id="map"></div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    const factories = [
+      {
+        id: 1,
+        expanded: false,
+        name: 'ПАО «КАМАЗ»',
+        owner: 'ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7473, 52.4466],
+        image: 'https://avatars.mds.yandex.net/get-altay/1778671/2a0000018607fcbe5acc62ceb54a30e223df/XXL_height',
+        year: '1969',
+        address: 'Автозаводский проспект, 2',
+        text: 'Градообразующее предприятие Набережных Челнов и крупнейший российский производитель тяжёлых грузовых автомобилей, шасси и специальной техники.',
+        more: 'С КАМАЗом связано формирование промышленного профиля города, развитие транспортной инфраструктуры и появление множества смежных производств. Компания объединяет несколько крупных заводов и сервисных направлений, а её производственный комплекс остаётся главным индустриальным ядром Набережных Челнов.'
+      },
+      {
+        id: 2,
+        expanded: false,
+        name: 'Литейный завод КАМАЗ',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7628, 52.4495],
+        image: 'https://kamaz.ru/upload/iblock/67d/67d0e00abc2481af1f4f7ba1f288f52c.jpg',
+        year: '1975',
+        address: 'промышленная зона КАМАЗ',
+        text: 'Крупная производственная площадка, выпускающая отливки из чугуна и цветных металлов для автомобильной промышленности.',
+        more: 'Это важное звено полного технологического цикла КАМАЗа. Завод обеспечивает другие площадки заготовками и деталями, без которых невозможна серийная сборка грузовых автомобилей и автокомпонентов.'
+      },
+      {
+        id: 3,
+        expanded: false,
+        name: 'Кузнечный завод КАМАЗ',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7559, 52.4387],
+        image: 'https://kamaz.ru/upload/iblock/f1c/f1c5be4d0cc9cc2f5e0be240d6f660af.jpg',
+        year: '1977',
+        address: 'промышленная зона КАМАЗ',
+        text: 'Предприятие тяжёлого машиностроения, выпускающее поковки и штампованные детали для грузовых автомобилей.',
+        more: 'Здесь производятся заготовки высокой прочности для силовых элементов техники. Для карты промышленностей этот объект важен как пример глубокой обработки металла внутри большого автомобильного кластера.'
+      },
+      {
+        id: 4,
+        expanded: false,
+        name: 'Прессово-рамный завод КАМАЗ',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7521, 52.4318],
+        image: 'https://kamaz.ru/upload/iblock/2b1/2b1a46d0e12c6b670ef42d9f7cdd0ed6.jpg',
+        year: '1978',
+        address: 'промышленная зона КАМАЗ',
+        text: 'Завод по выпуску рам, штампованных деталей и крупных элементов конструкции автомобилей КАМАЗ.',
+        more: 'На этой площадке формируются ключевые силовые элементы будущих грузовиков. Предприятие хорошо показывает масштаб и сложность машиностроительного производства в Набережных Челнах.'
+      },
+      {
+        id: 5,
+        expanded: false,
+        name: 'Автомобильный завод КАМАЗ',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7444, 52.4248],
+        image: 'https://kamaz.ru/upload/iblock/1ba/1ba6bd806e42fbaa2e62d8050cf55167.jpg',
+        year: '1976',
+        address: 'промышленная зона КАМАЗ',
+        text: 'Одна из главных производственных площадок города, где осуществляется сборка грузовых автомобилей и шасси.',
+        more: 'Именно это предприятие у многих ассоциируется с выпуском знаменитых камазовских машин. Оно является одним из главных символов промышленного имиджа Набережных Челнов.'
+      },
+      {
+        id: 6,
+        expanded: false,
+        name: 'Завод двигателей КАМАЗ',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7385, 52.4199],
+        image: 'https://kamaz.ru/upload/iblock/8dd/8dd8ec7c8d7c9b3b6f54bde7cb9cb8dc.jpg',
+        year: '1979',
+        address: 'промышленная зона КАМАЗ',
+        text: 'Площадка по выпуску силовых агрегатов для грузовых автомобилей, автобусов и специальной техники.',
+        more: 'Производство двигателей требует высокой точности механической обработки, строгого контроля качества и сложного технологического оборудования. Для города это один из важнейших объектов машиностроения.'
+      },
+      {
+        id: 7,
+        expanded: false,
+        name: 'АО «Ремдизель»',
+        owner: 'АО «Ремдизель»',
+        category: 'Машиностроение',
+        coords: [55.7348, 52.4288],
+        image: 'https://remdizel.ru/upload/iblock/5d8/5d8f78d1f7be40703cb8f8bb8b8c1997.jpg',
+        year: '1978',
+        address: 'промышленная зона',
+        text: 'Крупное машиностроительное предприятие, занимающееся ремонтом, модернизацией и выпуском специальной техники.',
+        more: 'Ремдизель показывает развитие инженерного и специализированного производства в Набережных Челнах. Завод важен как часть более широкого машиностроительного комплекса города.'
+      },
+      {
+        id: 8,
+        expanded: false,
+        name: 'Корпорация Haier',
+        owner: 'Haier Smart Home / Haier Russia',
+        category: 'Машиностроение',
+        coords: [55.7326, 52.5106],
+        image: 'https://avatars.mds.yandex.net/get-altay/12865251/2a0000018fab61c6b36859c1cf8272af66ed/S_height',
+        year: '2016',
+        address: 'ул. Корпорация Хайер, 130',
+        text: 'Современный индустриальный комплекс по выпуску бытовой техники: холодильников, стиральных машин, телевизоров и другой продукции.',
+        more: 'Появление площадки Haier стало важным этапом обновления индустриального профиля города. Это предприятие показывает, что Набережные Челны развиваются не только как центр тяжёлого машиностроения, но и как площадка для международных производств.'
+      },
+      {
+        id: 9,
+        expanded: false,
+        name: 'ОАО «КАМАЗ-Металлургия»',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Металлургия',
+        coords: [55.758, 52.444],
+        image: 'https://manufacturers.ru/media/cache/1b/c2/1bc2c89495855a295a4bf4fcdb8b4d16.jpg',
+        year: 'XX век',
+        address: 'Набережные Челны',
+        text: 'Крупное металлургическое производство, выпускающее литые комплектующие и запчасти для автомобилей и другой техники.',
+        more: 'На отраслевых каталогах предприятие выделяется как важная металлургическая база для всего комплекса КАМАЗа. Его присутствие на карте помогает точнее показать промышленную структуру города.'
+      },
+      {
+        id: 10,
+        expanded: false,
+        name: 'АО «ПТФК ЗТЭО»',
+        owner: 'АО «ПТФК ЗТЭО»',
+        category: 'Электротехника',
+        coords: [55.7273, 52.4417],
+        image: 'https://www.wiki-prom.ru/img/9194zavod.jpg',
+        year: '1976',
+        address: 'Набережные Челны',
+        text: 'Предприятие транспортного электрооборудования, выпускающее электротехническую продукцию для транспорта и промышленности.',
+        more: 'Это важный пример узкоспециализированного производства, без которого не может существовать крупный машиностроительный кластер. Завод отражает развитие электротехнической отрасли в городе.'
+      },
+      {
+        id: 11,
+        expanded: false,
+        name: 'ООО «Электрояр»',
+        owner: 'ООО «Электрояр»',
+        category: 'Электротехника',
+        coords: [55.7284, 52.4449],
+        image: 'https://manufacturers.ru/media/cache/f5/72/f5727a0d14f4c1b55f8f4f4204b3f2d7.jpg',
+        year: '2010',
+        address: 'Набережные Челны',
+        text: 'Предприятие электротехнической промышленности, связанное с выпуском электротехнической продукции и оборудования.',
+        more: 'Такие компании расширяют карту города за пределы машиностроения и пищевой отрасли и показывают развитие электротехнического направления.'
+      },
+      {
+        id: 12,
+        expanded: false,
+        name: 'ООО «Татэлектромаш»',
+        owner: 'ООО «Татэлектромаш»',
+        category: 'Электротехника',
+        coords: [55.7291, 52.4438],
+        image: 'https://manufacturers.ru/media/cache/8e/18/8e18d7ab608c1a2b0ce2d9d63d7c7f4d.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Электротехническое производство, входящее в круг промышленных предприятий города.',
+        more: 'Включение таких компаний помогает показать, что в промышленной структуре Челнов есть не только металлообработка и сборочные заводы, но и электротехническое производство.'
+      },
+      {
+        id: 13,
+        expanded: false,
+        name: 'ООО «Технотрон»',
+        owner: 'ООО «Технотрон»',
+        category: 'Машиностроение',
+        coords: [55.7314, 52.4452],
+        image: 'https://xn--l1aeck9c.xn--p1ai/upload/iblock/480/48095fa4efb55a4cb1ab9b3be6d95d3f.jpg',
+        year: '1990-е',
+        address: 'Набережные Челны',
+        text: 'Производитель автокомпонентов и промышленной продукции, работающий в кооперации с другими заводами Челнов.',
+        more: 'Такие предприятия особенно важны для промышленного города, потому что обеспечивают крупные площадки деталями, узлами и специализированной продукцией.'
+      },
+      {
+        id: 14,
+        expanded: false,
+        name: 'АО «ТАТПРОФ»',
+        owner: 'АО «ТАТПРОФ»',
+        category: 'Материалы',
+        coords: [55.6519, 52.3123],
+        image: 'https://www.tatprof.ru/upload/iblock/c7a/img3.png',
+        year: '1990',
+        address: 'ул. Профильная, 53',
+        text: 'Крупное предприятие по производству алюминиевого профиля и архитектурных систем.',
+        more: 'Компания выполняет полный цикл от литья и прессования до окраски и анодирования. Это один из самых заметных промышленных брендов города в сфере современных материалов.'
+      },
+      {
+        id: 15,
+        expanded: false,
+        name: 'Набережночелнинский картонно-бумажный комбинат им. С. П. Титова',
+        owner: 'народное предприятие',
+        category: 'Материалы',
+        coords: [55.68, 52.37],
+        image: 'https://nkbk.ru/netcat_files/design/slide2-history.jpg',
+        year: '1981',
+        address: 'ул. Народная, 1',
+        text: 'Один из крупнейших российских производителей гофрокартона, упаковки и санитарно-гигиенической бумажной продукции.',
+        more: 'Это важнейший объект перерабатывающей промышленности города. Комбинат показывает, что промышленность Челнов включает не только металл и машины, но и крупное бумажное и упаковочное производство.'
+      },
+      {
+        id: 16,
+        expanded: false,
+        name: 'ООО «Биполь»',
+        owner: 'ООО «Биполь»',
+        category: 'Химия',
+        coords: [55.721, 52.437],
+        image: 'https://static.tildacdn.com/tild3664-3663-4330-b633-393763313033/__.png',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Производитель модифицированных крахмалов и эфиров крахмала для пищевой, бумажной, строительной и других отраслей.',
+        more: 'Это необычный для городской карты промышленности объект, который помогает показать химико-технологическое направление и связь между пищевой, бумажной и строительной индустрией.'
+      },
+      {
+        id: 17,
+        expanded: false,
+        name: 'АО «Челны-Хлеб»',
+        owner: 'АО «Челны-Хлеб»',
+        category: 'Пищевая',
+        coords: [55.66, 52.3],
+        image: 'https://avatars.mds.yandex.net/get-altay/7021598/2a00000186ea15b02f3701940257559ad616/XXL_height',
+        year: '1973',
+        address: 'ул. Магистральная, 83',
+        text: 'Одно из самых известных предприятий пищевой промышленности города.',
+        more: 'Челны-Хлеб выпускает хлебобулочные и кондитерские изделия и работает по полному производственному циклу. Это предприятие отражает повседневную сторону промышленности города, связанную с продукцией для жителей.'
+      },
+      {
+        id: 18,
+        expanded: false,
+        name: 'ОАО «Челны Холод»',
+        owner: 'ОАО «Челны Холод»',
+        category: 'Пищевая',
+        coords: [55.7125, 52.4185],
+        image: 'https://www.chelny-holod.ru/file/photopic/thumb1/f07db08e5231b9359a6e60290fbba894.jpg',
+        year: '1987',
+        address: 'Хлебный проезд, 47',
+        text: 'Крупный производитель мороженого, полуфабрикатов и рыбной продукции.',
+        more: 'Компания имеет производственные и складские мощности и поставляет продукцию в разные регионы. На карте это один из важных представителей пищевой промышленности города.'
+      },
+      {
+        id: 19,
+        expanded: false,
+        name: 'ОАО «Булгарпиво»',
+        owner: 'ОАО «Булгарпиво»',
+        category: 'Пищевая',
+        coords: [55.7139, 52.4178],
+        image: 'https://avatars.mds.yandex.net/get-altay/10926933/2a0000018a6b48509dc159a759a3c4e909c6/XXL_height',
+        year: '1975',
+        address: 'Хлебный проезд, 37',
+        text: 'Крупное предприятие по производству напитков: пива, кваса, лимонадов и минеральной воды.',
+        more: 'Булгарпиво — один из узнаваемых пищевых заводов Закамья и заметный пример промышленности напитков в Набережных Челнах.'
+      },
+      {
+        id: 20,
+        expanded: false,
+        name: 'АО «Набережночелнинский элеватор»',
+        owner: 'в контуре АО «АГРОСИЛА»',
+        category: 'Пищевая',
+        coords: [55.6972, 52.3608],
+        image: 'https://agrosila-holding.ru/upload/iblock/e46/e46a52fe7d620a32176cd8f1efc66ac7.jpg',
+        year: '1917',
+        address: 'Набережные Челны',
+        text: 'Одно из старейших действующих предприятий города, связанное с приёмом, хранением и обработкой зерна.',
+        more: 'Этот объект особенно важен для исторической части карты, потому что показывает промышленную историю Челнов задолго до строительства КАМАЗа.'
+      },
+      {
+        id: 21,
+        expanded: false,
+        name: 'ООО «Агросила-Молоко»',
+        owner: 'в контуре АО «АГРОСИЛА»',
+        category: 'Пищевая',
+        coords: [55.6889, 52.4009],
+        image: 'https://agrosila-holding.ru/upload/iblock/86d/86d3f1b5ca88d6e61f3427162f53e4b6.jpg',
+        year: '2017',
+        address: 'Альметьевский тракт, 26',
+        text: 'Современное предприятие по выпуску молочной продукции.',
+        more: 'Оно хорошо дополняет мясную и хлебопекарную отрасль на промышленной карте города и показывает развитие современной пищевой переработки.'
+      },
+      {
+        id: 22,
+        expanded: false,
+        name: 'ООО «Челны-Бройлер»',
+        owner: 'в контуре АО «АГРОСИЛА»',
+        category: 'Пищевая',
+        coords: [55.6623, 52.4276],
+        image: 'https://agrosila-holding.ru/upload/resize_cache/iblock/4f9/315_189_2/img_2710.jpg',
+        year: '2003',
+        address: 'территория Стройбаза, 8',
+        text: 'Одно из крупнейших предприятий птицеводческой отрасли Татарстана.',
+        more: 'Работает по полному циклу от выращивания птицы до глубокой переработки мяса. Предприятие отражает связь городской промышленности с агропромышленным комплексом.'
+      },
+      {
+        id: 23,
+        expanded: false,
+        name: 'Камский металлургический комбинат «ТЭМПО»',
+        owner: 'в группе компаний «ТЭМПО»',
+        category: 'Металлургия',
+        coords: [55.7, 52.5],
+        image: 'https://avatars.mds.yandex.net/get-altay/18147375/2a0000019c420b296f6693ecf8081ea67ed0/XXL_height',
+        year: '2016',
+        address: 'ул. Моторная, 38',
+        text: 'Современное металлургическое предприятие, выпускающее стальную заготовку и строительную арматуру.',
+        more: 'КМК «ТЭМПО» показывает усиление металлургического направления в Набережных Челнах. На карте это предприятие помогает показать, что промышленный профиль города стал шире и разнообразнее.'
+      },
+      {
+        id: 24,
+        expanded: false,
+        name: 'Набережночелнинский трубный завод',
+        owner: 'в группе компаний «ТЭМПО»',
+        category: 'Металлургия',
+        coords: [55.7292, 52.4371],
+        image: 'https://xn--l1aeck9c.xn--p1ai/upload/iblock/6c4/6c40e1fa13072e332e38c5e5e96da737.jpg',
+        year: '2011',
+        address: 'ул. Моторная, 38',
+        text: 'Завод трубной продукции и оборудования для заканчивания нефтяных и газовых скважин.',
+        more: 'По открытым каталогам НЧТЗ входит в число заметных промышленных площадок города. Это хороший пример глубокой переработки металла и производства сложной промышленной продукции.'
+      },
+      {
+        id: 25,
+        expanded: false,
+        name: 'АО «Изоляционный трубный завод»',
+        owner: 'АО «Изоляционный трубный завод»',
+        category: 'Металлургия',
+        coords: [55.735, 52.43],
+        image: 'https://itz-chelny.ru/upload/iblock/31c/31ce7c8b86c93b67d6ceca2a6c1aa8ce.jpg',
+        year: '2017',
+        address: 'промышленная зона',
+        text: 'Производит трубы с защитными покрытиями и изоляцией для энергетики, коммунальной и нефтегазовой инфраструктуры.',
+        more: 'Для карточки используется фото трубной продукции, потому что открытого качественного снимка здания предприятия найти сложнее. Это всё равно хорошо показывает профиль производства.'
+      },
+      {
+        id: 26,
+        expanded: false,
+        name: 'ООО «Камский моторный завод»',
+        owner: 'ООО «Камский моторный завод»',
+        category: 'Металлургия',
+        coords: [55.7232, 52.4348],
+        image: 'https://www.wiki-prom.ru/img/675zavod.jpg',
+        year: '2019',
+        address: 'Арматурный проезд, 6',
+        text: 'Предприятие в сфере литья стали и выпуска промышленной металлической продукции.',
+        more: 'Это один из примеров более новых предприятий металлообработки и литейного профиля в Набережных Челнах. Подобные площадки усиливают промышленную кооперацию внутри города.'
+      },
+      {
+        id: 27,
+        expanded: false,
+        name: 'ООО «Новые литейные технологии»',
+        owner: 'ООО «Новые литейные технологии»',
+        category: 'Металлургия',
+        coords: [55.7287, 52.4446],
+        image: 'https://www.wiki-prom.ru/img/4746zavod.jpg',
+        year: '2010-е',
+        address: 'Набережные Челны',
+        text: 'Предприятие по выпуску стального литья и продукции металлообработки.',
+        more: 'Такие предприятия обеспечивают деталями и заготовками более крупные заводы и формируют важную промышленную кооперацию внутри города.'
+      },
+      {
+        id: 28,
+        expanded: false,
+        name: 'ООО «ТатПром-Холдинг»',
+        owner: 'ООО «ТатПром-Холдинг»',
+        category: 'Металлургия',
+        coords: [55.7267, 52.4489],
+        image: 'https://www.wiki-prom.ru/img/6065zavod.jpg',
+        year: '2000-е',
+        address: 'Набережные Челны',
+        text: 'Производитель изделий из проволоки и другой металлической продукции для разных отраслей промышленности.',
+        more: 'На карте этот объект показывает, что в Челнах развиты не только крупнейшие заводы, но и предприятия среднего масштаба, работающие на широкий промышленный рынок.'
+      },
+      {
+        id: 29,
+        expanded: false,
+        name: 'ООО «Агропласт»',
+        owner: 'ООО «Агропласт»',
+        category: 'Химия',
+        coords: [55.7225, 52.4535],
+        image: 'https://agro-plast.ru/wp-content/uploads/2024/01/about.jpg',
+        year: '2000-е',
+        address: 'ул. Мелиораторная, 15',
+        text: 'Производит изделия из пластмасс для автомобилестроения, строительства, сельского хозяйства и других отраслей.',
+        more: 'Агропласт дополняет карту химической промышленности и показывает, как полимерные материалы используются в самых разных сферах — от автокомпонентов до строительных изделий.'
+      },
+      {
+        id: 30,
+        expanded: false,
+        name: 'ООО НПО «СтартПласт»',
+        owner: 'ООО НПО «СтартПласт»',
+        category: 'Химия',
+        coords: [55.7248, 52.4512],
+        image: 'https://productcenter.ru/images/companies/19810/logo.jpg',
+        year: '2011',
+        address: 'Набережные Челны',
+        text: 'Производитель высокопрочных конструкционных пластмасс и полимерных материалов.',
+        more: 'Это ещё один важный объект химико-полимерной промышленности города, который показывает разнообразие производств за пределами металла и машиностроения.'
+      },
+      {
+        id: 31,
+        expanded: false,
+        name: 'ООО «Камвтор Групп»',
+        owner: 'ООО «Камвтор Групп»',
+        category: 'Химия',
+        coords: [55.7199, 52.4474],
+        image: 'https://productcenter.ru/images/companies/26294/logo.jpg',
+        year: '2016',
+        address: 'Набережные Челны',
+        text: 'Завод по переработке полимеров и производству изделий из вторичного сырья.',
+        more: 'Присутствие такого предприятия на карте помогает показать экологически важное направление городской промышленности — переработку полимеров и вторичных материалов.'
+      },
+      {
+        id: 32,
+        expanded: false,
+        name: 'ООО «Ак Барс Металл»',
+        owner: 'ООО «Ак Барс Металл»',
+        category: 'Строительство',
+        coords: [55.7263, 52.4398],
+        image: 'https://steel-fabrication.ru/upload/iblock/4b4/4b43e0be0f483965f67a24d75f0f01d1.jpg',
+        year: '1972',
+        address: 'Набережные Челны',
+        text: 'Крупное предприятие по производству строительных металлоконструкций в Татарстане.',
+        more: 'Компания выполняет изготовление и антикоррозионную обработку металлоконструкций и заметна в строительной промышленности Набережных Челнов.'
+      },
+      {
+        id: 33,
+        expanded: false,
+        name: 'Набережно-Челнинский завод ЖБИ «Мелиорация»',
+        owner: 'завод ЖБИ «Мелиорация»',
+        category: 'Строительство',
+        coords: [55.6719, 52.3184],
+        image: 'https://jbi-chelny.ru/wp-content/uploads/2021/03/zavod.jpg',
+        year: 'XX век',
+        address: 'Набережные Челны',
+        text: 'Предприятие по выпуску железобетонных изделий для инфраструктурного и гражданского строительства.',
+        more: 'Завод производит плиты, фундаментные блоки, кольца колодцев и другую строительную продукцию. Он помогает показать, что промышленная карта города включает и мощную строительную индустрию.'
+      },
+      {
+        id: 34,
+        expanded: false,
+        name: 'Набережночелнинская ТЭЦ',
+        owner: 'энергетическая инфраструктура региона',
+        category: 'Энергетика',
+        coords: [55.7114, 52.453],
+        image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Thermal_power_station.jpg/640px-Thermal_power_station.jpg',
+        year: '1970-е',
+        address: 'Набережные Челны',
+        text: 'Энергетический объект, обеспечивающий город и промышленные предприятия тепловой и электрической энергией.',
+        more: 'Без энергетической инфраструктуры невозможно представить работу больших промышленных комплексов Набережных Челнов. Поэтому ТЭЦ на карте важна не меньше производственных объектов.'
+      },
+      {
+        id: 35,
+        expanded: false,
+        name: 'ООО «Камский Литейный Завод»',
+        owner: 'ООО «Камский Литейный Завод»',
+        category: 'Металлургия',
+        coords: [55.7422, 52.4397],
+        image: 'https://fabricators.ru/images/cache/company_logo/uploads/company_logo/286/5d749b307cf68f1f7db66bcbf5f93d96.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Современное литейное производство, работающее для металлургической, машиностроительной, химической промышленности, энергетики и нефтегазового комплекса.',
+        more: 'По открытым каталогам предприятие позиционируется как одно из современных литейных производств города. Оно дополняет металлургическое направление Набережных Челнов и показывает развитие независимых литейных площадок помимо большого контура КАМАЗа.'
+      },
+      {
+        id: 36,
+        expanded: false,
+        name: 'ООО «АвтоЗапчасть КАМАЗ»',
+        owner: 'в группе ПАО «КАМАЗ»',
+        category: 'Машиностроение',
+        coords: [55.7448, 52.4282],
+        image: 'https://manufacturers.ru/media/cache/65/da/65da4e0ff7a65cfa744f9efac438e3a1.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Дочернее общество КАМАЗа, которое занимается реализацией запасных частей и двигателей к автомобилям КАМАЗ.',
+        more: 'Это предприятие важно для карты промышленностей, потому что показывает не только выпуск техники, но и существование большой системы обеспечения запчастями, двигателями и сервисной продукции вокруг автомобильного комплекса города.'
+      },
+      {
+        id: 37,
+        expanded: false,
+        name: 'ООО «Сиэнэйч Индастриал Руссия»',
+        owner: 'CNH Industrial',
+        category: 'Машиностроение',
+        coords: [55.7187, 52.4075],
+        image: 'https://fabricators.ru/images/cache/company_logo/uploads/company_logo/2147/6d1a5aeb0f2cfcdf1dacec2d7f25c7b7.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Завод в Набережных Челнах, входящий в международную группу CNH Industrial и связанный с производством сельскохозяйственной техники.',
+        more: 'В открытых источниках предприятие указывается как площадка английской группы компаний CNH Industrial, к которой относятся бренды New Holland и Case IH. Этот объект расширяет карту города за пределы чисто автомобильной и металлургической специализации.'
+      },
+      {
+        id: 38,
+        expanded: false,
+        name: 'ООО «Камская Посуда»',
+        owner: 'ООО «Камская Посуда»',
+        category: 'Металлургия',
+        coords: [55.7207, 52.4462],
+        image: 'https://manufacturers.ru/media/cache/ef/31/ef315dbdd6f83db6a245a215d6ff8e89.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Производитель литой чугунной посуды в Набережных Челнах.',
+        more: 'Хотя это предприятие по масштабу меньше крупных заводов, оно хорошо показывает разнообразие металлургической промышленности города. Карта становится реалистичнее, когда в ней есть не только гиганты, но и более узкие производства.'
+      },
+      {
+        id: 39,
+        expanded: false,
+        name: 'ООО «Камский Металлург»',
+        owner: 'ООО «Камский Металлург»',
+        category: 'Металлургия',
+        coords: [55.7229, 52.4441],
+        image: 'https://manufacturers.ru/media/cache/72/40/7240e490d823d25fa9f90b8b7e10c88f.jpg',
+        year: 'современное предприятие',
+        address: 'Набережные Челны',
+        text: 'Предприятие металлообработки и производства металлоизделий, входящее в промышленную карту Набережных Челнов.',
+        more: 'Подобные компании особенно важны для индустриальной структуры города, потому что связывают между собой крупные сборочные, строительные и металлургические предприятия, обеспечивая их изделиями и заготовками.'
+      }
+    ];
+
+    const map = L.map('map', {
+      zoomControl: true,
+      fadeAnimation: false,
+      zoomAnimation: false,
+      markerZoomAnimation: false
+    }).setView([55.735, 52.41], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '' }).addTo(map);
+
+    const factoryList = document.getElementById('factoryList');
+    const searchInput = document.getElementById('searchInput');
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    let currentFilter = 'all';
+    let currentSearch = '';
+    let activeId = null;
+    const markers = {};
+
+    function getMarkerConfig(category) {
+      const configs = {
+        'Машиностроение': { emoji: '🚛', className: 'marker-machinery' },
+        'Пищевая': { emoji: '🍞', className: 'marker-food' },
+        'Металлургия': { emoji: '⚙️', className: 'marker-metal' },
+        'Материалы': { emoji: '🧱', className: 'marker-materials' },
+        'Энергетика': { emoji: '⚡', className: 'marker-energy' },
+        'Химия': { emoji: '🧪', className: 'marker-chem' },
+        'Электротехника': { emoji: '🔌', className: 'marker-electro' },
+        'Строительство': { emoji: '🏗️', className: 'marker-build' }
+      };
+      return configs[category] || { emoji: '🏭', className: 'marker-other' };
+    }
+
+    function createFactoryIcon(factory) {
+      const cfg = getMarkerConfig(factory.category);
+      return L.divIcon({
+        className: '',
+        html: `<div class="map-marker ${cfg.className}" title="${factory.name}">${cfg.emoji}</div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+        popupAnchor: [0, -12]
+      });
+    }
+
+    function safeImage(url) {
+      return url && typeof url === 'string' && url.trim() ? url : '';
+    }
+
+    function createPopup(factory) {
+      const imageHtml = safeImage(factory.image) ? `<img src="${safeImage(factory.image)}" alt="${factory.name}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();">` : '';
+      const moreHtml = factory.more ? `<div class="more-text ${factory.expanded ? '' : 'hidden'}">${factory.more}</div><button class="details-btn" type="button" data-id="${factory.id}" data-kind="popup">${factory.expanded ? 'Свернуть' : 'Подробнее'}</button>` : '';
+      return `<div class="popup-card">${imageHtml}<h3>${factory.name}</h3><div class="popup-info"><strong>Отрасль:</strong> ${factory.category}<br><strong>Собственник:</strong> ${factory.owner || 'не указан'}<br><strong>Основан:</strong> ${factory.year}<br><strong>Адрес:</strong> ${factory.address}</div><div class="popup-text">${factory.text}</div>${moreHtml}</div>`;
+    }
+
+    function getFilteredFactories() {
+      return factories.filter(factory => {
+        const matchFilter = currentFilter === 'all' || factory.category === currentFilter;
+        const matchSearch = factory.name.toLowerCase().includes(currentSearch.toLowerCase());
+        return matchFilter && matchSearch;
+      });
+    }
+
+    function focusFactory(factory) {
+      if (!factory || !markers[factory.id]) return;
+      activeId = factory.id;
+      map.setView(factory.coords, 13, { animate: false });
+      markers[factory.id].openPopup();
+      renderFactoryList();
+    }
+
+    function attachPopupButton(factory) {
+      const marker = markers[factory.id];
+      if (!marker) return;
+      const popup = marker.getPopup();
+      if (!popup) return;
+      const popupElement = popup.getElement();
+      if (!popupElement) return;
+      const button = popupElement.querySelector('[data-kind="popup"]');
+      if (!button) return;
+      button.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        factory.expanded = !factory.expanded;
+        marker.setPopupContent(createPopup(factory));
+        marker.openPopup();
+        renderFactoryList();
+      };
+    }
+
+    function renderFactoryList() {
+      const filtered = getFilteredFactories();
+      if (!filtered.length) {
+        factoryList.innerHTML = '<div class="empty-state">Ничего не найдено. Попробуй изменить поиск или выбрать другой фильтр.</div>';
+        return;
+      }
+
+      factoryList.innerHTML = filtered.map(factory => {
+        const imageHtml = safeImage(factory.image) ? `<img src="${safeImage(factory.image)}" alt="${factory.name}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove();">` : '';
+        const moreHtml = factory.more ? `<div class="more-text ${factory.expanded ? '' : 'hidden'}">${factory.more}</div><button class="details-btn" type="button" data-id="${factory.id}" data-kind="card">${factory.expanded ? 'Свернуть' : 'Подробнее'}</button>` : '';
+        return `<article class="factory-card ${activeId === factory.id ? 'active' : ''}" data-id="${factory.id}">${imageHtml}<span class="tag">${factory.category}</span><h3>${factory.name}</h3><div class="factory-meta"><span>Основан: ${factory.year}</span><span>${factory.address}</span><span>Собственник: ${factory.owner || 'не указан'}</span></div><p>${factory.text}</p>${moreHtml}</article>`;
+      }).join('');
+
+      document.querySelectorAll('.factory-card').forEach(card => {
+        card.onclick = (event) => {
+          const id = Number(card.dataset.id);
+          const factory = factories.find(item => item.id === id);
+          const button = event.target.closest('[data-kind="card"]');
+          if (button && factory) {
+            event.preventDefault();
+            event.stopPropagation();
+            factory.expanded = !factory.expanded;
+            renderFactoryList();
+            if (activeId === factory.id && markers[factory.id]) {
+              markers[factory.id].setPopupContent(createPopup(factory));
+            }
+            return;
+          }
+          focusFactory(factory);
+        };
+      });
+    }
+
+    factories.forEach(factory => {
+      const marker = L.marker(factory.coords, { icon: createFactoryIcon(factory) }).addTo(map).bindPopup(createPopup(factory));
+      marker.on('click', () => {
+        activeId = factory.id;
+        renderFactoryList();
+      });
+      marker.on('popupopen', () => attachPopupButton(factory));
+      marker.on('popupclose', () => {
+        const popup = marker.getPopup();
+        if (popup) popup.setContent(createPopup(factory));
+      });
+      markers[factory.id] = marker;
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      currentSearch = e.target.value.trim();
+      renderFactoryList();
+    });
+
+    filterButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        filterButtons.forEach(item => item.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        renderFactoryList();
+      });
+    });
+
+    renderFactoryList();
+  </script>
+</body>
+</html>
